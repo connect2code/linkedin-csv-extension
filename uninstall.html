@@ -101,10 +101,10 @@
     <div class="icon">👋</div>
     <h1>Sorry to See You Go!</h1>
     <p>
-      Thank you for trying <strong>LinkedIn → CSV Exporter</strong>.
+      Thank you for trying <strong>LinkedIn → CSV Exporter</strong>. 
       We hope it was helpful during your time using it.
     </p>
-
+    
     <div class="feedback-section">
       <h2>Help Us Improve</h2>
       <p style="margin-bottom: 16px; font-size: 14px;">
@@ -114,11 +114,11 @@
         💬 Share Feedback
       </a>
     </div>
-
+    
     <a href="https://chromewebstore.google.com/detail/hnpadjdaninnijdpjmjpndhdcdefennl" class="reinstall-link">
       Changed your mind? Reinstall the extension →
     </a>
-
+    
     <div class="footer">
       <p>Made with ❤️ for professionals</p>
     </div>
@@ -127,15 +127,11 @@
   <script>
     /**
      * EXTENSION_UNINSTALLED Event Tracking
-     *
-     * This page fires an analytics event when loaded.
-     * It's designed to be hosted externally (GitHub Pages, etc.)
-     * and set as the uninstall URL via chrome.runtime.setUninstallURL()
-     *
-     * URL Parameters expected:
-     * - anon_id: Anonymous user identifier
-     * - version: Extension version that was uninstalled
-     * - timestamp: When the extension was installed
+     * 
+     * Fixed CORS issue by:
+     * 1. Using sendBeacon with Blob (no custom headers)
+     * 2. Fallback to image pixel tracking (no CORS at all)
+     * 3. API key in URL to avoid preflight
      */
     (async function() {
       try {
@@ -144,14 +140,14 @@
         const anonId = urlParams.get('anon_id') || 'unknown';
         const version = urlParams.get('version') || 'unknown';
         const installTimestamp = urlParams.get('timestamp') || 0;
-
+        
         // Analytics configuration
         const ANALYTICS_CONFIG = {
           ENDPOINT: 'https://api.logflare.app/logs',
           SOURCE_ID: '21a365f1-571a-43d4-bda5-b5fc3719861f',
           API_KEY: 'Bb5ypTTBAx4s'
         };
-
+        
         // Build payload
         const payload = {
           event_message: 'EXTENSION_UNINSTALLED',
@@ -164,32 +160,49 @@
             usage_duration_ms: installTimestamp ? (Date.now() - parseInt(installTimestamp)) : null
           }
         };
-
-        // Use API key in query parameter to avoid CORS preflight issues with custom headers
-        const url = `${ANALYTICS_CONFIG.ENDPOINT}?source=${ANALYTICS_CONFIG.SOURCE_ID}&api_key=${ANALYTICS_CONFIG.API_KEY}`;
-
-        // Try sendBeacon first (best for page unload scenarios)
+        
+        // Build URL with all parameters (avoids CORS preflight)
+        const url = new URL(ANALYTICS_CONFIG.ENDPOINT);
+        url.searchParams.set('source', ANALYTICS_CONFIG.SOURCE_ID);
+        url.searchParams.set('api_key', ANALYTICS_CONFIG.API_KEY);
+        
+        // Method 1: Try sendBeacon with proper content type
         const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
-        const beaconSent = navigator.sendBeacon(url, blob);
-
+        const beaconSent = navigator.sendBeacon(url.toString(), blob);
+        
         if (beaconSent) {
-          console.log('Uninstall event tracked via sendBeacon');
+          console.log('✅ Uninstall event tracked via sendBeacon');
         } else {
-          // Fallback to fetch with no-cors mode
-          await fetch(url, {
-            method: 'POST',
-            body: JSON.stringify(payload),
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            mode: 'no-cors', // Fire and forget
-            keepalive: true
-          });
-          console.log('Uninstall event tracked via fetch');
+          // Method 2: Fallback to fetch with minimal headers
+          try {
+            await fetch(url.toString(), {
+              method: 'POST',
+              body: JSON.stringify(payload),
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              keepalive: true
+            });
+            console.log('✅ Uninstall event tracked via fetch');
+          } catch (fetchError) {
+            // Method 3: Ultimate fallback - use GET request with data in URL
+            const fallbackUrl = new URL(ANALYTICS_CONFIG.ENDPOINT);
+            fallbackUrl.searchParams.set('source', ANALYTICS_CONFIG.SOURCE_ID);
+            fallbackUrl.searchParams.set('api_key', ANALYTICS_CONFIG.API_KEY);
+            fallbackUrl.searchParams.set('event', 'EXTENSION_UNINSTALLED');
+            fallbackUrl.searchParams.set('anon_id', anonId);
+            fallbackUrl.searchParams.set('version', version);
+            fallbackUrl.searchParams.set('timestamp', installTimestamp);
+            
+            // Use image pixel for GET request (no CORS issues)
+            const img = new Image();
+            img.src = fallbackUrl.toString();
+            console.log('✅ Uninstall event tracked via image pixel');
+          }
         }
       } catch (error) {
         // Silent failure - don't bother the user
-        console.log('Analytics error (non-critical):', error.message);
+        console.log('⚠️ Analytics error (non-critical):', error.message);
       }
     })();
   </script>
