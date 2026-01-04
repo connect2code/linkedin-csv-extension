@@ -127,81 +127,64 @@
   <script>
     /**
      * EXTENSION_UNINSTALLED Event Tracking
+     * Using Cloudflare Worker proxy to bypass CORS
      * 
-     * Fixed CORS issue by:
-     * 1. Using sendBeacon with Blob (no custom headers)
-     * 2. Fallback to image pixel tracking (no CORS at all)
-     * 3. API key in URL to avoid preflight
+     * Event structure matches other analytics events:
+     * {
+     *   event_message: "EVENT_NAME",
+     *   metadata: { event_version, anon_id, extension_version, timestamp, ...data }
+     * }
      */
-    (async function() {
+    (function() {
       try {
         // Parse URL parameters
         const urlParams = new URLSearchParams(window.location.search);
         const anonId = urlParams.get('anon_id') || 'unknown';
         const version = urlParams.get('version') || 'unknown';
         const installTimestamp = urlParams.get('timestamp') || 0;
-        
-        // Analytics configuration
-        const ANALYTICS_CONFIG = {
-          ENDPOINT: 'https://api.logflare.app/logs',
-          SOURCE_ID: '21a365f1-571a-43d4-bda5-b5fc3719861f',
-          API_KEY: 'Bb5ypTTBAx4s'
-        };
-        
-        // Build payload
+
+        const uninstallTimestamp = Date.now();
+        const usageDuration = installTimestamp ? (uninstallTimestamp - parseInt(installTimestamp)) : null;
+
+        // Cloudflare Worker proxy endpoint
+        const PROXY_ENDPOINT = 'https://linkedin-csv-exporter.nikhilsharma1265.workers.dev/';
+
+        // Payload structure matches other analytics events (Logflare format)
         const payload = {
           event_message: 'EXTENSION_UNINSTALLED',
           metadata: {
             event_version: '1.0',
             anon_id: anonId,
             extension_version: version,
+            timestamp: uninstallTimestamp,
             install_timestamp: parseInt(installTimestamp) || 0,
-            uninstall_timestamp: Date.now(),
-            usage_duration_ms: installTimestamp ? (Date.now() - parseInt(installTimestamp)) : null
+            uninstall_timestamp: uninstallTimestamp,
+            usage_duration_ms: usageDuration,
+            page_type: 'uninstall_page'
           }
         };
-        
-        // Build URL with all parameters (avoids CORS preflight)
-        const url = new URL(ANALYTICS_CONFIG.ENDPOINT);
-        url.searchParams.set('source', ANALYTICS_CONFIG.SOURCE_ID);
-        url.searchParams.set('api_key', ANALYTICS_CONFIG.API_KEY);
-        
-        // Method 1: Try sendBeacon with proper content type
-        const blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
-        const beaconSent = navigator.sendBeacon(url.toString(), blob);
-        
-        if (beaconSent) {
-          console.log('✅ Uninstall event tracked via sendBeacon');
-        } else {
-          // Method 2: Fallback to fetch with minimal headers
-          try {
-            await fetch(url.toString(), {
-              method: 'POST',
-              body: JSON.stringify(payload),
-              headers: {
-                'Content-Type': 'application/json'
-              },
-              keepalive: true
-            });
-            console.log('✅ Uninstall event tracked via fetch');
-          } catch (fetchError) {
-            // Method 3: Ultimate fallback - use GET request with data in URL
-            const fallbackUrl = new URL(ANALYTICS_CONFIG.ENDPOINT);
-            fallbackUrl.searchParams.set('source', ANALYTICS_CONFIG.SOURCE_ID);
-            fallbackUrl.searchParams.set('api_key', ANALYTICS_CONFIG.API_KEY);
-            fallbackUrl.searchParams.set('event', 'EXTENSION_UNINSTALLED');
-            fallbackUrl.searchParams.set('anon_id', anonId);
-            fallbackUrl.searchParams.set('version', version);
-            fallbackUrl.searchParams.set('timestamp', installTimestamp);
-            
-            // Use image pixel for GET request (no CORS issues)
-            const img = new Image();
-            img.src = fallbackUrl.toString();
-            console.log('✅ Uninstall event tracked via image pixel');
+
+        fetch(PROXY_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          keepalive: true
+        }).then(response => {
+          if (response.ok) {
+            console.log('✅ Uninstall event tracked successfully');
+            return response.json();
+          } else {
+            console.log('⚠️ Tracking failed with status:', response.status);
           }
-        }
+        }).then(data => {
+          if (data) {
+            console.log('📊 Response:', data);
+          }
+        }).catch(error => {
+          console.log('⚠️ Analytics error (non-critical):', error.message);
+        });
+
       } catch (error) {
-        // Silent failure - don't bother the user
         console.log('⚠️ Analytics error (non-critical):', error.message);
       }
     })();
